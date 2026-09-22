@@ -1,0 +1,60 @@
+name: Build STIPHANTUBE APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Find Android ZIP
+        id: find
+        shell: bash
+        run: |
+          set -e
+          ZIP=$(find . -type f -name '*.zip' -print0 |
+            while IFS= read -r -d '' f; do
+              if unzip -l "$f" | grep -q 'STIPHANTUBE_ANDROID/gradlew'; then
+                echo "$f"
+                break
+              fi
+            done)
+
+          if [ -z "$ZIP" ]; then
+            echo "ERROR: Android ZIP not found"
+            exit 1
+          fi
+
+          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+
+      - name: Extract Android project
+        run: |
+          rm -rf android-project
+          mkdir android-project
+          unzip -q "${{ steps.find.outputs.zip }}" -d android-project
+
+      - name: Fix Gradle permission
+        run: chmod +x android-project/STIPHANTUBE_ANDROID/gradlew
+
+      - name: Build APK
+        working-directory: android-project/STIPHANTUBE_ANDROID
+        run: sh ./gradlew assembleDebug --stacktrace --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: STIPHANTUBE-debug-apk
+          path: android-project/STIPHANTUBE_ANDROID/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
