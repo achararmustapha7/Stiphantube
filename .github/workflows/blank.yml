@@ -2,7 +2,8 @@ name: Build STIPHANTUBE APK
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 jobs:
@@ -10,47 +11,106 @@ jobs:
     runs-on: ubuntu-22.04
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Setup JDK 17
+      - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
-      - name: Find Android ZIP
-        id: find
+      - name: Find Android project ZIP
+        id: find_zip
         shell: bash
         run: |
           set -e
-          ZIP=$(find . -type f -name '*.zip' -print0 |
-            while IFS= read -r -d '' f; do
-              if unzip -l "$f" | grep -q 'STIPHANTUBE_ANDROID/gradlew'; then
-                echo "$f"
-                break
-              fi
-            done)
 
-          if [ -z "$ZIP" ]; then
-            echo "ERROR: Android ZIP not found"
+          FOUND_ZIP=""
+
+          while IFS= read -r -d '' ZIP_FILE; do
+            if unzip -l "$ZIP_FILE" | grep -q "STIPHANTUBE_ANDROID/gradlew"; then
+              FOUND_ZIP="$ZIP_FILE"
+              break
+            fi
+          done < <(find . -type f -name "*.zip" -print0)
+
+          if [ -z "$FOUND_ZIP" ]; then
+            echo "ERROR: STIPHANTUBE Android ZIP not found."
+            echo "ZIP files found:"
+            find . -type f -name "*.zip" -print
             exit 1
           fi
 
-          echo "zip=$ZIP" >> "$GITHUB_OUTPUT"
+          echo "Found Android ZIP: $FOUND_ZIP"
+          echo "zip=$FOUND_ZIP" >> "$GITHUB_OUTPUT"
 
       - name: Extract Android project
+        shell: bash
         run: |
+          set -e
+
           rm -rf android-project
-          mkdir android-project
-          unzip -q "${{ steps.find.outputs.zip }}" -d android-project
+          mkdir -p android-project
 
-      - name: Fix Gradle permission
-        run: chmod +x android-project/STIPHANTUBE_ANDROID/gradlew
+          unzip -q -o "${{ steps.find_zip.outputs.zip }}" -d android-project
 
-      - name: Build APK
+          echo "Android project:"
+          find android-project/STIPHANTUBE_ANDROID -maxdepth 2 -type f | sort | head -100
+
+      - name: Check Gradle wrapper
+        shell: bash
+        run: |
+          set -e
+
+          if [ ! -f "android-project/STIPHANTUBE_ANDROID/gradlew" ]; then
+            echo "ERROR: gradlew not found."
+            exit 1
+          fi
+
+          if [ ! -f "android-project/STIPHANTUBE_ANDROID/gradle/wrapper/gradle-wrapper.jar" ]; then
+            echo "ERROR: gradle-wrapper.jar not found."
+            exit 1
+          fi
+
+          if [ ! -f "android-project/STIPHANTUBE_ANDROID/gradle/wrapper/gradle-wrapper.properties" ]; then
+            echo "ERROR: gradle-wrapper.properties not found."
+            exit 1
+          fi
+
+          echo "Gradle wrapper files OK."
+
+      - name: Fix Gradle permissions
+        shell: bash
+        run: |
+          chmod +x android-project/STIPHANTUBE_ANDROID/gradlew
+
+      - name: Build Debug APK
         working-directory: android-project/STIPHANTUBE_ANDROID
-        run: sh ./gradlew assembleDebug --stacktrace --no-daemon
+        shell: bash
+        run: |
+          set -e
+
+          echo "Starting Gradle build..."
+
+          sh ./gradlew assembleDebug \
+            --stacktrace \
+            --no-daemon
+
+      - name: Check APK
+        shell: bash
+        run: |
+          set -e
+
+          APK_PATH="android-project/STIPHANTUBE_ANDROID/app/build/outputs/apk/debug"
+
+          if ! find "$APK_PATH" -type f -name "*.apk" | grep -q ".apk"; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          echo "APK generated:"
+          find "$APK_PATH" -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
