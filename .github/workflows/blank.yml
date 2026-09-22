@@ -21,17 +21,41 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      - name: Find Android project
+        run: |
+          echo "Repository contents:"
+          ls -la
+          echo "Searching for Gradle Wrapper..."
+          find . -maxdepth 3 -name gradlew -type f -print
+
       - name: Make Gradle executable
-        working-directory: STIPHANTUBE_ANDROID
-        run: chmod +x gradlew
+        run: |
+          if [ -f "STIPHANTUBE_ANDROID/gradlew" ]; then
+            chmod +x STIPHANTUBE_ANDROID/gradlew
+          elif [ -f "gradlew" ]; then
+            chmod +x gradlew
+          else
+            echo "ERROR: gradlew not found"
+            exit 1
+          fi
 
       - name: Build Debug APK
-        working-directory: STIPHANTUBE_ANDROID
-        run: ./gradlew assembleDebug --stacktrace
+        run: |
+          if [ -f "STIPHANTUBE_ANDROID/gradlew" ]; then
+            cd STIPHANTUBE_ANDROID
+            ./gradlew assembleDebug --stacktrace
+          elif [ -f "gradlew" ]; then
+            ./gradlew assembleDebug --stacktrace
+          else
+            echo "ERROR: Android Gradle project not found"
+            exit 1
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: STIPHANTUBE-debug-apk
-          path: STIPHANTUBE_ANDROID/app/build/outputs/apk/debug/*.apk
+          path: |
+            STIPHANTUBE_ANDROID/app/build/outputs/apk/debug/*.apk
+            app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
